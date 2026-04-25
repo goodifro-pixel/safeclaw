@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import re
 import textwrap
 from typing import Any
 
@@ -58,14 +57,26 @@ async def _call_llm(prompt: str, system_prompt: str) -> str:
         "Content-Type": "application/json",
     }
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(ENDPOINT, json=payload, headers=headers)
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(ENDPOINT, json=payload, headers=headers)
+    except httpx.HTTPError as e:
+        return f"API Error: request failed ({e})"
+
+    try:
         data = resp.json()
+    except ValueError:
+        return f"API Error: non-JSON response (status {resp.status_code})"
 
-    if "error" in data:
-        return f"API Error: {data['error'].get('message', 'Unknown')}"
+    if isinstance(data, dict) and "error" in data:
+        err = data["error"]
+        msg = err.get("message", "Unknown") if isinstance(err, dict) else str(err)
+        return f"API Error: {msg}"
 
-    return data["choices"][0]["message"]["content"]
+    try:
+        return data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        return "API Error: unexpected response format"
 
 
 PLAN_PROMPT = textwrap.dedent("""\
