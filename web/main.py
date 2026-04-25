@@ -327,6 +327,18 @@ async def chat(req: ChatRequest) -> ChatResponse:
     return ChatResponse(reply=reply, model=MODEL, detected_language=req.language)
 
 
+def _sanitize_filename(name: str) -> str:
+    """Remove path traversal sequences and normalize filename."""
+    name = name.replace("\\", "/")
+    name = "/".join(
+        part for part in name.split("/")
+        if part and part != ".." and part != "."
+    )
+    if not name:
+        return "untitled"
+    return name
+
+
 def _extract_files(llm_output: str) -> dict[str, str]:
     """Extract files from LLM output using ### FILE: pattern and code blocks."""
     files: dict[str, str] = {}
@@ -336,7 +348,8 @@ def _extract_files(llm_output: str) -> dict[str, str]:
         re.DOTALL,
     )
     for match in file_pattern.finditer(llm_output):
-        filename = match.group(1).strip().strip("`")
+        raw_name = match.group(1).strip().strip("`")
+        filename = _sanitize_filename(raw_name)
         content = match.group(2)
         if filename and content.strip():
             files[filename] = content
@@ -452,6 +465,41 @@ async def build_preview(req: BuildRequest) -> dict[str, Any]:
         "model": MODEL,
         "raw": result,
     }
+
+
+class ZipRequest(BaseModel):
+    files: list[dict[str, str]]
+    project_name: str = "project"
+
+
+@app.post("/api/build/zip")
+async def build_zip(req: ZipRequest) -> StreamingResponse:
+    """Create a ZIP from previously generated files (no LLM call)."""
+    if not req.files:
+        return StreamingResponse(
+            io.BytesIO(b"No files provided."),
+            media_type="text/plain",
+            status_code=400,
+        )
+
+    safe_name = (
+        re.sub(r"[^\w\s-]", "", req.project_name[:40]).strip().replace(" ", "_")
+        or "project"
+    )
+    file_dict = {
+        _sanitize_filename(f["name"]): f.get("content", "")
+        for f in req.files
+        if f.get("name")
+    }
+    zip_buf = _create_zip(file_dict, safe_name)
+
+    return StreamingResponse(
+        zip_buf,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_name}.zip"',
+        },
+    )
 
 
 @app.get("/api/status")

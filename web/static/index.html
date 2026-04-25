@@ -551,12 +551,20 @@
         }
 
         let lastBuildDesc = '';
+        let cachedBuildFiles = [];
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
 
         async function buildProject() {
             const desc = document.getElementById('buildDescription').value.trim();
             if (!desc) return;
 
             lastBuildDesc = desc;
+            cachedBuildFiles = [];
             const btn = document.getElementById('buildBtn');
             const status = document.getElementById('buildStatus');
             const filesDiv = document.getElementById('buildFiles');
@@ -582,15 +590,24 @@
                     status.textContent = data.error;
                     status.className = 'build-status error';
                 } else if (data.files && data.files.length > 0) {
+                    cachedBuildFiles = data.files;
                     status.textContent = `Project built: ${data.files.length} file(s) generated`;
                     status.className = 'build-status success';
 
-                    filesDiv.innerHTML = data.files.map(f => `
-                        <div class="build-file-item">
-                            <span class="build-file-name">${f.name}</span>
-                            <span class="build-file-size">${f.content.length} chars</span>
-                        </div>
-                    `).join('');
+                    filesDiv.innerHTML = '';
+                    data.files.forEach(f => {
+                        const item = document.createElement('div');
+                        item.className = 'build-file-item';
+                        const nameSpan = document.createElement('span');
+                        nameSpan.className = 'build-file-name';
+                        nameSpan.textContent = f.name;
+                        const sizeSpan = document.createElement('span');
+                        sizeSpan.className = 'build-file-size';
+                        sizeSpan.textContent = f.content.length + ' chars';
+                        item.appendChild(nameSpan);
+                        item.appendChild(sizeSpan);
+                        filesDiv.appendChild(item);
+                    });
                     filesDiv.classList.add('visible');
                     downloadBtn.classList.add('visible');
                 } else {
@@ -607,17 +624,18 @@
         }
 
         async function downloadZip() {
-            if (!lastBuildDesc) return;
+            if (!cachedBuildFiles.length) return;
 
             const downloadBtn = document.getElementById('downloadBtn');
             downloadBtn.textContent = 'Preparing ZIP...';
             downloadBtn.disabled = true;
 
             try {
-                const resp = await fetch('/api/build', {
+                const projectName = lastBuildDesc.slice(0, 40).replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_') || 'project';
+                const resp = await fetch('/api/build/zip', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ description: lastBuildDesc }),
+                    body: JSON.stringify({ files: cachedBuildFiles, project_name: projectName }),
                 });
 
                 if (!resp.ok) {
