@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import textwrap
 from typing import Any
@@ -74,14 +75,26 @@ async def _call_llm(
         "Content-Type": "application/json",
     }
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(ENDPOINT, json=payload, headers=headers)
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(ENDPOINT, json=payload, headers=headers)
+
+        if resp.status_code != 200:
+            return f"API Error: HTTP {resp.status_code}"
+
         data = resp.json()
+    except json.JSONDecodeError:
+        return "API Error: unexpected response format (non-JSON)"
+    except httpx.HTTPError as exc:
+        return f"API Error: {exc}"
 
     if "error" in data:
         return f"API Error: {data['error'].get('message', 'Unknown')}"
 
-    return data["choices"][0]["message"]["content"]
+    try:
+        return data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError):
+        return "API Error: unexpected response format"
 
 
 async def _call_llm_chat(messages: list[dict[str, str]], system_prompt: str) -> str:
@@ -103,14 +116,26 @@ async def _call_llm_chat(messages: list[dict[str, str]], system_prompt: str) -> 
         "Content-Type": "application/json",
     }
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(ENDPOINT, json=payload, headers=headers)
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(ENDPOINT, json=payload, headers=headers)
+
+        if resp.status_code != 200:
+            return f"API Error: HTTP {resp.status_code}"
+
         data = resp.json()
+    except json.JSONDecodeError:
+        return "API Error: unexpected response format (non-JSON)"
+    except httpx.HTTPError as exc:
+        return f"API Error: {exc}"
 
     if "error" in data:
         return f"API Error: {data['error'].get('message', 'Unknown')}"
 
-    return data["choices"][0]["message"]["content"]
+    try:
+        return data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError):
+        return "API Error: unexpected response format"
 
 
 # ---------------------------------------------------------------------------
