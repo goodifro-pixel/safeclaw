@@ -1042,16 +1042,22 @@ intents:
 
 @app.command("ai-code")
 def ai_code(
-    description: str = typer.Argument(..., help="What to build"),
+    description: str = typer.Argument(..., help="What to build (or path for --review/--test)"),
     lang: str = typer.Option("", "--lang", "-l", help="Target language (py, js, ts, go, …)"),
     plan_only: bool = typer.Option(False, "--plan", help="Show architecture plan only"),
+    review: bool = typer.Option(False, "--review", help="AI code review with quality score"),
+    test: bool = typer.Option(False, "--test", help="Generate test suite for existing code"),
     config: Path | None = typer.Option(None, "--config", "-c"),
     verbose: bool = typer.Option(False, "--verbose"),
 ):
-    """Generate code from a natural-language description (free LLM)."""
+    """Professional AI code generation (plan -> code -> tests -> review -> fix)."""
     setup_logging(verbose)
     suffix = f" --lang {lang}" if lang else ""
-    if plan_only:
+    if review:
+        cmd = f"ai-code review {description}"
+    elif test:
+        cmd = f"ai-code test {description}"
+    elif plan_only:
         cmd = f"ai-code plan {description}"
     else:
         cmd = f"ai-code generate {description}{suffix}"
@@ -1099,16 +1105,19 @@ def ai_dev(
     description: str = typer.Argument(..., help="What to build (full pipeline)"),
     repo: str = typer.Option("", "--repo", "-r", help="GitHub repo for deployment"),
     no_deploy: bool = typer.Option(False, "--no-deploy", help="Skip deployment"),
+    quality: int = typer.Option(6, "--quality", "-q", help="Quality threshold 1-10 (default: 6)"),
     config: Path | None = typer.Option(None, "--config", "-c"),
     verbose: bool = typer.Option(False, "--verbose"),
 ):
-    """Full AI dev pipeline: describe → code → review → fix → deploy."""
+    """Professional AI dev pipeline with quality gate."""
     setup_logging(verbose)
     flags = ""
     if repo:
         flags += f" --repo {repo}"
     if no_deploy:
         flags += " --no-deploy"
+    if quality != 6:
+        flags += f" --quality {quality}"
     cmd = f"ai-dev {description}{flags}"
     asyncio.run(_run_action("ai_dev", cmd, config))
 

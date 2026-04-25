@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import textwrap
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from safeclaw.actions.ai_coder import AiCoderAction, _parse_code_blocks
-from safeclaw.actions.bug_finder import BugFinderAction, _PythonAnalyzer, _find_duplicates
+from safeclaw.actions.ai_coder import (
+    AiCoderAction,
+    _collect_source_files,
+    _parse_code_blocks,
+)
+from safeclaw.actions.bug_finder import BugFinderAction, _find_duplicates, _PythonAnalyzer
 from safeclaw.actions.deployer import DeployerAction, _detect_project
-
 
 # ---------------------------------------------------------------------------
 # _parse_code_blocks
@@ -170,11 +172,26 @@ class TestAiCoderAction:
     def test_help(self, action: AiCoderAction):
         result = action._help()
         assert "AI Coder" in result
+        assert "professional" in result.lower() or "pipeline" in result.lower()
+
+    def test_help_mentions_review(self, action: AiCoderAction):
+        result = action._help()
+        assert "review" in result.lower()
+
+    def test_help_mentions_test(self, action: AiCoderAction):
+        result = action._help()
+        assert "test" in result.lower()
 
     def test_no_llm_msg(self, action: AiCoderAction):
         result = action._no_llm_msg()
         assert "No LLM" in result
         assert "openrouter" in result.lower() or "ollama" in result.lower()
+
+    def test_generate_readme(self, action: AiCoderAction):
+        readme = action._generate_readme("A test project", ["main.py", "tests/test_main.py"])
+        assert "test project" in readme.lower()
+        assert "main.py" in readme
+        assert "pytest" in readme.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +225,43 @@ class TestDeployerAction:
 # AiDevAction
 # ---------------------------------------------------------------------------
 
+class TestCollectSourceFiles:
+    def test_single_file(self, tmp_path: Path):
+        src = tmp_path / "app.py"
+        src.write_text("print('hello')\n")
+        result = _collect_source_files(src)
+        assert "app.py" in result
+        assert "hello" in result
+
+    def test_directory(self, tmp_path: Path):
+        (tmp_path / "main.py").write_text("x = 1\n")
+        (tmp_path / "utils.py").write_text("y = 2\n")
+        result = _collect_source_files(tmp_path)
+        assert "main.py" in result
+        assert "utils.py" in result
+
+    def test_skips_non_source_files(self, tmp_path: Path):
+        (tmp_path / "main.py").write_text("x = 1\n")
+        (tmp_path / "readme.txt").write_text("hello\n")
+        result = _collect_source_files(tmp_path)
+        assert "main.py" in result
+        assert "readme.txt" not in result
+
+    def test_empty_directory(self, tmp_path: Path):
+        result = _collect_source_files(tmp_path)
+        assert "no source files" in result.lower()
+
+
+class TestScaffoldTemplates:
+    def test_gitignore_template(self):
+        from safeclaw.actions.ai_coder import _SCAFFOLD_TEMPLATES
+        assert ".gitignore" in _SCAFFOLD_TEMPLATES
+        gitignore = _SCAFFOLD_TEMPLATES[".gitignore"]
+        assert "__pycache__" in gitignore
+        assert ".env" in gitignore
+        assert ".pytest_cache" in gitignore
+
+
 class TestAiDevAction:
     def test_help(self):
         from safeclaw.actions.ai_dev import AiDevAction
@@ -215,3 +269,30 @@ class TestAiDevAction:
         result = action._help()
         assert "AI Dev Pipeline" in result
         assert "pipeline" in result.lower()
+
+    def test_help_mentions_quality(self):
+        from safeclaw.actions.ai_dev import AiDevAction
+        action = AiDevAction()
+        result = action._help()
+        assert "quality" in result.lower()
+
+    def test_help_mentions_threshold(self):
+        from safeclaw.actions.ai_dev import AiDevAction
+        action = AiDevAction()
+        result = action._help()
+        assert "threshold" in result.lower() or "6" in result
+
+    def test_extract_quality_score(self):
+        from safeclaw.actions.ai_dev import AiDevAction
+        action = AiDevAction()
+        assert action._extract_quality_score("Quality Score: 7/10") == 7
+        assert action._extract_quality_score("Quality: **8/10**") == 8
+        assert action._extract_quality_score("no score here") == 0
+        assert action._extract_quality_score("**3/10**") == 3
+
+    def test_extract_quality_score_edge_cases(self):
+        from safeclaw.actions.ai_dev import AiDevAction
+        action = AiDevAction()
+        assert action._extract_quality_score("") == 0
+        assert action._extract_quality_score("Quality Score: 10/10") == 10
+        assert action._extract_quality_score("Quality: **1/10**") == 1
