@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SafeClaw AI Code Generator</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: #0a0a0f;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+        .container { max-width: 900px; margin: 0 auto; padding: 2rem 1.5rem; }
+        header {
+            text-align: center;
+            padding: 2rem 0 1.5rem;
+        }
+        h1 {
+            font-size: 2.2rem;
+            background: linear-gradient(135deg, #00d4ff, #7b2fff, #ff2d8a);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+        .subtitle { color: #888; font-size: 1rem; }
+        .badge {
+            display: inline-block;
+            background: #1a1a2e;
+            color: #00d4ff;
+            padding: 0.25rem 0.75rem;
+            border-radius: 1rem;
+            font-size: 0.8rem;
+            margin-top: 0.5rem;
+            border: 1px solid #00d4ff33;
+        }
+        .input-section {
+            background: #12121a;
+            border: 1px solid #2a2a3a;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin: 1.5rem 0;
+        }
+        .mode-tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .mode-tab {
+            padding: 0.5rem 1.2rem;
+            border: 1px solid #2a2a3a;
+            border-radius: 8px;
+            background: transparent;
+            color: #888;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+        .mode-tab:hover { border-color: #00d4ff55; color: #ccc; }
+        .mode-tab.active {
+            background: #00d4ff15;
+            border-color: #00d4ff;
+            color: #00d4ff;
+        }
+        textarea {
+            width: 100%;
+            min-height: 100px;
+            background: #0a0a12;
+            border: 1px solid #2a2a3a;
+            border-radius: 8px;
+            color: #e0e0e0;
+            padding: 1rem;
+            font-family: inherit;
+            font-size: 0.95rem;
+            resize: vertical;
+        }
+        textarea:focus { outline: none; border-color: #00d4ff55; }
+        textarea::placeholder { color: #555; }
+        .btn-generate {
+            width: 100%;
+            padding: 0.8rem;
+            margin-top: 1rem;
+            background: linear-gradient(135deg, #00d4ff, #7b2fff);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        .btn-generate:hover { opacity: 0.9; }
+        .btn-generate:disabled { opacity: 0.5; cursor: wait; }
+        .output-section {
+            background: #12121a;
+            border: 1px solid #2a2a3a;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin: 1.5rem 0;
+            display: none;
+        }
+        .output-section.visible { display: block; }
+        .output-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        .output-header h3 { color: #00d4ff; }
+        .output-model { color: #555; font-size: 0.8rem; }
+        .output-content {
+            background: #0a0a12;
+            border: 1px solid #1a1a2a;
+            border-radius: 8px;
+            padding: 1.2rem;
+            white-space: pre-wrap;
+            font-family: 'Fira Code', 'Cascadia Code', monospace;
+            font-size: 0.85rem;
+            line-height: 1.6;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .output-content code {
+            background: #1a1a2e;
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+        }
+        .spinner {
+            display: inline-block;
+            width: 18px; height: 18px;
+            border: 2px solid #333;
+            border-top-color: #00d4ff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 0.5rem;
+            vertical-align: middle;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin: 2rem 0;
+        }
+        .feature {
+            background: #12121a;
+            border: 1px solid #2a2a3a;
+            border-radius: 10px;
+            padding: 1.2rem;
+        }
+        .feature h4 { color: #7b2fff; margin-bottom: 0.3rem; }
+        .feature p { color: #777; font-size: 0.85rem; line-height: 1.5; }
+        footer {
+            text-align: center;
+            padding: 2rem 0;
+            color: #444;
+            font-size: 0.8rem;
+        }
+        footer a { color: #00d4ff; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>SafeClaw AI Code Generator</h1>
+            <p class="subtitle">Professional-grade code generation powered by free AI</p>
+            <span class="badge">Free &bull; No limits &bull; Production-ready</span>
+        </header>
+
+        <div class="input-section">
+            <div class="mode-tabs">
+                <button class="mode-tab active" data-mode="generate">Generate Code</button>
+                <button class="mode-tab" data-mode="plan">Architecture Plan</button>
+                <button class="mode-tab" data-mode="review">Code Review</button>
+            </div>
+            <textarea id="description" placeholder="Describe what you want to build...&#10;&#10;Examples:&#10;- A REST API with user authentication and JWT tokens&#10;- A Python function that validates email addresses&#10;- A React component for a todo list with drag and drop"></textarea>
+            <button class="btn-generate" id="generateBtn" onclick="generate()">
+                Generate
+            </button>
+        </div>
+
+        <div class="output-section" id="outputSection">
+            <div class="output-header">
+                <h3 id="outputTitle">Result</h3>
+                <span class="output-model" id="outputModel"></span>
+            </div>
+            <div class="output-content" id="outputContent"></div>
+        </div>
+
+        <div class="features">
+            <div class="feature">
+                <h4>Professional Pipeline</h4>
+                <p>6-step process: Plan, Code, Tests, Review, Fix, Scaffold. SOLID principles, type safety, error handling.</p>
+            </div>
+            <div class="feature">
+                <h4>Quality Gates</h4>
+                <p>AI self-review with 1-10 scoring. Auto-fix loop iterates until quality threshold is met.</p>
+            </div>
+            <div class="feature">
+                <h4>100% Free</h4>
+                <p>Powered by free LLM models via OpenRouter. No API costs, no limits, no subscriptions.</p>
+            </div>
+        </div>
+
+        <footer>
+            Built with <a href="https://github.com/goodifro-pixel/safeclaw">SafeClaw</a> &mdash; Privacy-first AI automation framework
+        </footer>
+    </div>
+
+    <script>
+        let currentMode = 'generate';
+
+        document.querySelectorAll('.mode-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                currentMode = tab.dataset.mode;
+
+                const ta = document.getElementById('description');
+                if (currentMode === 'review') {
+                    ta.placeholder = 'Paste code to review...';
+                } else if (currentMode === 'plan') {
+                    ta.placeholder = 'Describe the project for architecture planning...';
+                } else {
+                    ta.placeholder = 'Describe what you want to build...\n\nExamples:\n- A REST API with user authentication\n- A Python function that validates emails\n- A React todo list component';
+                }
+            });
+        });
+
+        async function generate() {
+            const desc = document.getElementById('description').value.trim();
+            if (!desc) return;
+
+            const btn = document.getElementById('generateBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Generating...';
+
+            const output = document.getElementById('outputSection');
+            const content = document.getElementById('outputContent');
+            const title = document.getElementById('outputTitle');
+            const model = document.getElementById('outputModel');
+
+            output.classList.add('visible');
+            content.textContent = 'Thinking...';
+
+            try {
+                const resp = await fetch('/api/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ description: desc, mode: currentMode }),
+                });
+                const data = await resp.json();
+
+                const titles = { generate: 'Generated Code', plan: 'Architecture Plan', review: 'Code Review' };
+                title.textContent = titles[data.mode] || 'Result';
+                model.textContent = `Model: ${data.model}`;
+                content.textContent = data.result;
+            } catch (e) {
+                content.textContent = `Error: ${e.message}`;
+            }
+
+            btn.disabled = false;
+            btn.innerHTML = 'Generate';
+        }
+
+        document.getElementById('description').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) generate();
+        });
+    </script>
+</body>
+</html>
