@@ -68,11 +68,11 @@ apis:
 # Each value is a provider label from ai_providers below.
 # If not set, the default/active provider is used for all tasks.
 # ─────────────────────────────────────────────────────────────────────────────
-# task_providers:
-#   blog: "local-ollama"        # LLM for blog writing
-#   research: "openai"          # LLM for deep research analysis
-#   coding: "anthropic"         # LLM for code generation/review
-#   general: "local-ollama"     # LLM for everything else
+task_providers:
+  coding: "openrouter-free"       # Used by ai-code, bug-find, ai-dev pipeline
+  # blog: "local-ollama"          # LLM for blog writing
+  # research: "openrouter-free"   # LLM for deep research analysis
+  # general: "local-ollama"       # LLM for everything else
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Auto-Blog Scheduler (100-Star Feature) — Cron publishing without LLM
@@ -112,6 +112,14 @@ apis:
 #   - Groq:      https://console.groq.com/keys
 # ─────────────────────────────────────────────────────────────────────────────
 ai_providers:
+  # --- Free cloud AI (active — zero cost) ---
+  - label: "openrouter-free"
+    provider: "openrouter"
+    api_key: "${OPENROUTER_API_KEY}"   # expanded from env var at runtime
+    model: "meta-llama/llama-3.1-8b-instruct:free"
+    temperature: 0.2
+    max_tokens: 4000
+
   # --- Local AI (uncomment to enable) ---
 
   # - label: "local-ollama"
