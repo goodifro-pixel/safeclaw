@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
+import re
 import textwrap
+import zipfile
 from typing import Any
 
 import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -31,6 +34,10 @@ ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 class GenerateRequest(BaseModel):
     description: str
     mode: str = "generate"  # generate | plan | review
+
+
+class BuildRequest(BaseModel):
+    description: str
 
 
 class ChatRequest(BaseModel):
@@ -205,6 +212,32 @@ REVIEW_PROMPT = textwrap.dedent("""\
     {description}
 """)
 
+BUILD_PROMPT = textwrap.dedent("""\
+    You are a world-class software engineer. Generate a COMPLETE, ready-to-run
+    project based on the user's description.
+
+    CRITICAL FORMAT RULES:
+    - Output ONLY code files, each preceded by a filename comment
+    - Use this exact format for EACH file:
+
+    ### FILE: filename.ext
+    ```language
+    <file content>
+    ```
+
+    - Generate ALL necessary files: source code, config, README.md, etc.
+    - Each file must be complete and runnable — no TODOs or placeholders
+    - Include a README.md with setup and run instructions
+    - Include dependency files (requirements.txt, package.json, go.mod, etc.)
+    - Follow best practices for the target language/framework
+    - If no language is specified, default to Python
+
+    IMPORTANT: Always respond in the same language the user writes in for
+    README and comments. Code itself should use English identifiers.
+
+    Project description: {description}
+""")
+
 CHAT_SYSTEM = textwrap.dedent("""\
     You are SafeClaw AI — a world-class programming assistant that can write
     code in ANY programming language and framework. You are helpful, precise,
@@ -294,13 +327,188 @@ async def chat(req: ChatRequest) -> ChatResponse:
     return ChatResponse(reply=reply, model=MODEL, detected_language=req.language)
 
 
+def _sanitize_filename(name: str) -> str:
+    """Remove path traversal sequences and normalize filename."""
+    name = name.replace("\\", "/")
+    name = "/".join(
+        part for part in name.split("/")
+        if part and part != ".." and part != "."
+    )
+    if not name:
+        return "untitled"
+    return name
+
+
+def _extract_files(llm_output: str) -> dict[str, str]:
+    """Extract files from LLM output using ### FILE: pattern and code blocks."""
+    files: dict[str, str] = {}
+
+    file_pattern = re.compile(
+        r"###\s*FILE:\s*(.+?)\s*\n\s*```[^\n]*\n(.*?)```",
+        re.DOTALL,
+    )
+    for match in file_pattern.finditer(llm_output):
+        raw_name = match.group(1).strip().strip("`")
+        filename = _sanitize_filename(raw_name)
+        content = match.group(2)
+        if filename and content.strip():
+            files[filename] = content
+
+    if not files:
+        block_pattern = re.compile(
+            r"```(\w+)?\n(.*?)```",
+            re.DOTALL,
+        )
+        ext_map = {
+            "python": ".py", "py": ".py", "javascript": ".js", "js": ".js",
+            "typescript": ".ts", "ts": ".ts", "go": ".go", "rust": ".rs",
+            "java": ".java", "kotlin": ".kt", "c": ".c", "cpp": ".cpp",
+            "csharp": ".cs", "ruby": ".rb", "php": ".php", "swift": ".swift",
+            "dart": ".dart", "html": ".html", "css": ".css", "sql": ".sql",
+            "bash": ".sh", "shell": ".sh", "yaml": ".yaml", "yml": ".yaml",
+            "json": ".json", "toml": ".toml", "xml": ".xml", "md": ".md",
+            "markdown": ".md", "dockerfile": "Dockerfile", "makefile": "Makefile",
+        }
+        for i, match in enumerate(block_pattern.finditer(llm_output)):
+            lang = (match.group(1) or "txt").lower()
+            content = match.group(2)
+            if not content.strip():
+                continue
+            ext = ext_map.get(lang, f".{lang}")
+            if ext in ("Dockerfile", "Makefile"):
+                filename = ext
+            else:
+                filename = f"main{ext}" if i == 0 else f"file_{i}{ext}"
+            files[filename] = content
+
+    return files
+
+
+def _create_zip(files: dict[str, str], project_name: str) -> io.BytesIO:
+    """Create an in-memory ZIP archive from file dict."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for filename, content in files.items():
+            zf.writestr(f"{project_name}/{filename}", content)
+    buf.seek(0)
+    return buf
+
+
+@app.post("/api/build")
+async def build_project(req: BuildRequest) -> StreamingResponse:
+    """Generate a complete project and return as a downloadable ZIP."""
+    desc = req.description.strip()
+    if not desc:
+        return StreamingResponse(
+            io.BytesIO(b"Please provide a project description."),
+            media_type="text/plain",
+            status_code=400,
+        )
+
+    prompt = BUILD_PROMPT.format(description=desc)
+    system = (
+        "You are a world-class engineer. Generate a complete project with all files. "
+        "Use the ### FILE: format for each file. Respond in the user's language for "
+        "comments and README."
+    )
+
+    result = await _call_llm(prompt, system, max_tokens=4000, temperature=0.2)
+
+    if result.startswith("Error:") or result.startswith("API Error:"):
+        return StreamingResponse(
+            io.BytesIO(result.encode()),
+            media_type="text/plain",
+            status_code=502,
+        )
+
+    files = _extract_files(result)
+    if not files:
+        files["output.txt"] = result
+
+    safe_name = re.sub(r"[^\w\s-]", "", desc[:40]).strip().replace(" ", "_") or "project"
+    zip_buf = _create_zip(files, safe_name)
+
+    return StreamingResponse(
+        zip_buf,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_name}.zip"',
+        },
+    )
+
+
+@app.post("/api/build/preview")
+async def build_preview(req: BuildRequest) -> dict[str, Any]:
+    """Generate project files and return file list + content (no ZIP)."""
+    desc = req.description.strip()
+    if not desc:
+        return {"error": "Please provide a project description.", "files": []}
+
+    prompt = BUILD_PROMPT.format(description=desc)
+    system = (
+        "You are a world-class engineer. Generate a complete project with all files. "
+        "Use the ### FILE: format for each file. Respond in the user's language for "
+        "comments and README."
+    )
+
+    result = await _call_llm(prompt, system, max_tokens=4000, temperature=0.2)
+
+    if result.startswith("Error:") or result.startswith("API Error:"):
+        return {"error": result, "files": []}
+
+    files = _extract_files(result)
+    if not files:
+        files["output.txt"] = result
+
+    return {
+        "files": [{"name": k, "content": v} for k, v in files.items()],
+        "model": MODEL,
+        "raw": result,
+    }
+
+
+class ZipRequest(BaseModel):
+    files: list[dict[str, str]]
+    project_name: str = "project"
+
+
+@app.post("/api/build/zip")
+async def build_zip(req: ZipRequest) -> StreamingResponse:
+    """Create a ZIP from previously generated files (no LLM call)."""
+    if not req.files:
+        return StreamingResponse(
+            io.BytesIO(b"No files provided."),
+            media_type="text/plain",
+            status_code=400,
+        )
+
+    safe_name = (
+        re.sub(r"[^\w\s-]", "", req.project_name[:40]).strip().replace(" ", "_")
+        or "project"
+    )
+    file_dict = {
+        _sanitize_filename(f["name"]): f.get("content", "")
+        for f in req.files
+        if f.get("name")
+    }
+    zip_buf = _create_zip(file_dict, safe_name)
+
+    return StreamingResponse(
+        zip_buf,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_name}.zip"',
+        },
+    )
+
+
 @app.get("/api/status")
 async def status() -> dict[str, Any]:
     """Return API status and capabilities."""
     return {
         "status": "online",
         "model": MODEL,
-        "capabilities": ["generate", "plan", "review", "chat"],
+        "capabilities": ["generate", "plan", "review", "chat", "build"],
         "api_key_configured": bool(OPENROUTER_API_KEY),
         "supported_languages": [
             "Python", "JavaScript", "TypeScript", "Go", "Rust", "C", "C++",

@@ -236,6 +236,72 @@
             font-size: 0.8rem;
         }
         footer a { color: #00d4ff; text-decoration: none; }
+        /* Build UI */
+        .build-container {
+            display: none;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .build-container.visible { display: flex; }
+        .mode-tab.build-tab.active {
+            background: #00ff8815;
+            border-color: #00ff88;
+            color: #00ff88;
+        }
+        .btn-build {
+            background: linear-gradient(135deg, #00ff88, #00d4ff);
+        }
+        .build-files {
+            background: #0a0a12;
+            border: 1px solid #2a2a3a;
+            border-radius: 8px;
+            padding: 1rem;
+            display: none;
+        }
+        .build-files.visible { display: block; }
+        .build-file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0.75rem;
+            border-bottom: 1px solid #1a1a2a;
+            font-size: 0.85rem;
+        }
+        .build-file-item:last-child { border-bottom: none; }
+        .build-file-name {
+            color: #00ff88;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.8rem;
+        }
+        .build-file-size {
+            color: #555;
+            font-size: 0.75rem;
+        }
+        .btn-download {
+            display: none;
+            width: 100%;
+            padding: 0.8rem;
+            margin-top: 0.5rem;
+            background: linear-gradient(135deg, #00ff88, #00d4ff);
+            border: none;
+            border-radius: 8px;
+            color: #0a0a0f;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        .btn-download:hover { opacity: 0.9; }
+        .btn-download.visible { display: block; }
+        .build-status {
+            color: #888;
+            font-size: 0.85rem;
+            text-align: center;
+            padding: 0.5rem;
+        }
+        .build-status.success { color: #00ff88; }
+        .build-status.error { color: #ff4444; }
+
         .clear-chat {
             background: transparent;
             border: 1px solid #2a2a3a;
@@ -263,6 +329,7 @@
                 <button class="mode-tab" data-mode="plan">Architecture Plan</button>
                 <button class="mode-tab" data-mode="review">Code Review</button>
                 <button class="mode-tab chat-tab" data-mode="chat">Chat</button>
+                <button class="mode-tab build-tab" data-mode="build">Build Project</button>
             </div>
 
             <!-- Generate / Plan / Review mode -->
@@ -298,6 +365,22 @@
                     <span class="lang-badge">+ more</span>
                 </div>
             </div>
+
+            <!-- Build mode -->
+            <div class="build-container" id="buildPanel">
+                <div style="display:flex; justify-content:space-between; align-items:center">
+                    <span style="color:#00ff88; font-size:0.85rem; font-weight:600">Build &amp; Download Project</span>
+                </div>
+                <textarea id="buildDescription" placeholder="Describe the project to build...&#10;&#10;Examples:&#10;- Todo app with Flask + SQLite&#10;- React + TypeScript landing page&#10;- Go REST API with JWT auth&#10;- Python CLI tool for CSV processing" rows="4"></textarea>
+                <button class="btn-generate btn-build" id="buildBtn" onclick="buildProject()">
+                    Build &amp; Download ZIP
+                </button>
+                <div class="build-status" id="buildStatus"></div>
+                <div class="build-files" id="buildFiles"></div>
+                <button class="btn-download" id="downloadBtn" onclick="downloadZip()">
+                    Download ZIP
+                </button>
+            </div>
         </div>
 
         <div class="output-section" id="outputSection">
@@ -322,8 +405,8 @@
                 <p>Talk to AI in any human language. It responds in your language automatically.</p>
             </div>
             <div class="feature">
-                <h4>Quality Gates</h4>
-                <p>AI self-review with 1-10 scoring. SOLID principles, type safety, error handling.</p>
+                <h4>Build &amp; Download</h4>
+                <p>AI generates complete projects. Download as ZIP with all files, configs, and README.</p>
             </div>
         </div>
 
@@ -344,15 +427,20 @@
 
                 const generatePanel = document.getElementById('generatePanel');
                 const chatPanel = document.getElementById('chatPanel');
+                const buildPanel = document.getElementById('buildPanel');
                 const outputSection = document.getElementById('outputSection');
 
+                generatePanel.style.display = 'none';
+                chatPanel.classList.remove('visible');
+                buildPanel.classList.remove('visible');
+                outputSection.classList.remove('visible');
+
                 if (currentMode === 'chat') {
-                    generatePanel.style.display = 'none';
                     chatPanel.classList.add('visible');
-                    outputSection.classList.remove('visible');
+                } else if (currentMode === 'build') {
+                    buildPanel.classList.add('visible');
                 } else {
                     generatePanel.style.display = 'block';
-                    chatPanel.classList.remove('visible');
 
                     const ta = document.getElementById('description');
                     if (currentMode === 'review') {
@@ -461,6 +549,123 @@
             const messages = document.getElementById('chatMessages');
             messages.innerHTML = '<div class="chat-msg assistant">Hello! I\'m SafeClaw AI. I can write code in any programming language, explain concepts, review code, and help with architecture. Ask me anything in any language!</div>';
         }
+
+        let lastBuildDesc = '';
+        let cachedBuildFiles = [];
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        async function buildProject() {
+            const desc = document.getElementById('buildDescription').value.trim();
+            if (!desc) return;
+
+            lastBuildDesc = desc;
+            cachedBuildFiles = [];
+            const btn = document.getElementById('buildBtn');
+            const status = document.getElementById('buildStatus');
+            const filesDiv = document.getElementById('buildFiles');
+            const downloadBtn = document.getElementById('downloadBtn');
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Building project...';
+            status.textContent = 'Generating project files...';
+            status.className = 'build-status';
+            filesDiv.classList.remove('visible');
+            filesDiv.innerHTML = '';
+            downloadBtn.classList.remove('visible');
+
+            try {
+                const resp = await fetch('/api/build/preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ description: desc }),
+                });
+                const data = await resp.json();
+
+                if (data.error) {
+                    status.textContent = data.error;
+                    status.className = 'build-status error';
+                } else if (data.files && data.files.length > 0) {
+                    cachedBuildFiles = data.files;
+                    status.textContent = `Project built: ${data.files.length} file(s) generated`;
+                    status.className = 'build-status success';
+
+                    filesDiv.innerHTML = '';
+                    data.files.forEach(f => {
+                        const item = document.createElement('div');
+                        item.className = 'build-file-item';
+                        const nameSpan = document.createElement('span');
+                        nameSpan.className = 'build-file-name';
+                        nameSpan.textContent = f.name;
+                        const sizeSpan = document.createElement('span');
+                        sizeSpan.className = 'build-file-size';
+                        sizeSpan.textContent = f.content.length + ' chars';
+                        item.appendChild(nameSpan);
+                        item.appendChild(sizeSpan);
+                        filesDiv.appendChild(item);
+                    });
+                    filesDiv.classList.add('visible');
+                    downloadBtn.classList.add('visible');
+                } else {
+                    status.textContent = 'No files generated. Try a more specific description.';
+                    status.className = 'build-status error';
+                }
+            } catch (e) {
+                status.textContent = `Error: ${e.message}`;
+                status.className = 'build-status error';
+            }
+
+            btn.disabled = false;
+            btn.innerHTML = 'Build &amp; Download ZIP';
+        }
+
+        async function downloadZip() {
+            if (!cachedBuildFiles.length) return;
+
+            const downloadBtn = document.getElementById('downloadBtn');
+            downloadBtn.textContent = 'Preparing ZIP...';
+            downloadBtn.disabled = true;
+
+            try {
+                const projectName = lastBuildDesc.slice(0, 40).replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_') || 'project';
+                const resp = await fetch('/api/build/zip', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ files: cachedBuildFiles, project_name: projectName }),
+                });
+
+                if (!resp.ok) {
+                    const text = await resp.text();
+                    alert('Build failed: ' + text);
+                    return;
+                }
+
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                const disposition = resp.headers.get('Content-Disposition') || '';
+                const match = disposition.match(/filename="(.+?)"/);
+                a.download = match ? match[1] : 'project.zip';
+                a.href = url;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } catch (e) {
+                alert('Download failed: ' + e.message);
+            }
+
+            downloadBtn.textContent = 'Download ZIP';
+            downloadBtn.disabled = false;
+        }
+
+        document.getElementById('buildDescription').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) buildProject();
+        });
 
         document.getElementById('description').addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) generate();
