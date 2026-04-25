@@ -46,6 +46,7 @@
             display: flex;
             gap: 0.5rem;
             margin-bottom: 1rem;
+            flex-wrap: wrap;
         }
         .mode-tab {
             padding: 0.5rem 1.2rem;
@@ -62,6 +63,11 @@
             background: #00d4ff15;
             border-color: #00d4ff;
             color: #00d4ff;
+        }
+        .mode-tab.chat-tab.active {
+            background: #ff2d8a15;
+            border-color: #ff2d8a;
+            color: #ff2d8a;
         }
         textarea {
             width: 100%;
@@ -92,6 +98,9 @@
         }
         .btn-generate:hover { opacity: 0.9; }
         .btn-generate:disabled { opacity: 0.5; cursor: wait; }
+        .btn-chat {
+            background: linear-gradient(135deg, #ff2d8a, #7b2fff);
+        }
         .output-section {
             background: #12121a;
             border: 1px solid #2a2a3a;
@@ -121,11 +130,6 @@
             max-height: 600px;
             overflow-y: auto;
         }
-        .output-content code {
-            background: #1a1a2e;
-            padding: 0.15rem 0.4rem;
-            border-radius: 4px;
-        }
         .spinner {
             display: inline-block;
             width: 18px; height: 18px;
@@ -137,9 +141,83 @@
             vertical-align: middle;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Chat UI */
+        .chat-container {
+            display: none;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .chat-container.visible { display: flex; }
+        .chat-messages {
+            background: #0a0a12;
+            border: 1px solid #2a2a3a;
+            border-radius: 8px;
+            padding: 1rem;
+            min-height: 300px;
+            max-height: 500px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .chat-msg {
+            padding: 0.75rem 1rem;
+            border-radius: 12px;
+            max-width: 85%;
+            line-height: 1.5;
+            font-size: 0.9rem;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .chat-msg.user {
+            background: linear-gradient(135deg, #7b2fff22, #00d4ff22);
+            border: 1px solid #7b2fff44;
+            align-self: flex-end;
+            color: #c0c0ff;
+        }
+        .chat-msg.assistant {
+            background: #12121a;
+            border: 1px solid #2a2a3a;
+            align-self: flex-start;
+            color: #e0e0e0;
+            font-family: 'Fira Code', 'Cascadia Code', monospace;
+            font-size: 0.85rem;
+        }
+        .chat-msg.assistant.thinking {
+            color: #555;
+            font-style: italic;
+        }
+        .chat-input-row {
+            display: flex;
+            gap: 0.5rem;
+        }
+        .chat-input-row textarea {
+            min-height: 50px;
+            flex: 1;
+        }
+        .chat-input-row button {
+            padding: 0 1.5rem;
+            flex-shrink: 0;
+        }
+        .lang-badges {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.3rem;
+            margin-top: 0.5rem;
+        }
+        .lang-badge {
+            font-size: 0.7rem;
+            padding: 0.15rem 0.5rem;
+            border-radius: 0.75rem;
+            background: #1a1a2e;
+            color: #888;
+            border: 1px solid #2a2a3a;
+        }
+
         .features {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 1rem;
             margin: 2rem 0;
         }
@@ -149,8 +227,8 @@
             border-radius: 10px;
             padding: 1.2rem;
         }
-        .feature h4 { color: #7b2fff; margin-bottom: 0.3rem; }
-        .feature p { color: #777; font-size: 0.85rem; line-height: 1.5; }
+        .feature h4 { color: #7b2fff; margin-bottom: 0.3rem; font-size: 0.95rem; }
+        .feature p { color: #777; font-size: 0.82rem; line-height: 1.5; }
         footer {
             text-align: center;
             padding: 2rem 0;
@@ -158,14 +236,25 @@
             font-size: 0.8rem;
         }
         footer a { color: #00d4ff; text-decoration: none; }
+        .clear-chat {
+            background: transparent;
+            border: 1px solid #2a2a3a;
+            color: #555;
+            padding: 0.3rem 0.8rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            transition: all 0.2s;
+        }
+        .clear-chat:hover { border-color: #ff2d8a; color: #ff2d8a; }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
             <h1>SafeClaw AI Code Generator</h1>
-            <p class="subtitle">Professional-grade code generation powered by free AI</p>
-            <span class="badge">Free &bull; No limits &bull; Production-ready</span>
+            <p class="subtitle">Universal code generation &amp; multilingual AI chat</p>
+            <span class="badge">Free &bull; 50+ Languages &bull; Any Framework</span>
         </header>
 
         <div class="input-section">
@@ -173,11 +262,42 @@
                 <button class="mode-tab active" data-mode="generate">Generate Code</button>
                 <button class="mode-tab" data-mode="plan">Architecture Plan</button>
                 <button class="mode-tab" data-mode="review">Code Review</button>
+                <button class="mode-tab chat-tab" data-mode="chat">Chat</button>
             </div>
-            <textarea id="description" placeholder="Describe what you want to build...&#10;&#10;Examples:&#10;- A REST API with user authentication and JWT tokens&#10;- A Python function that validates email addresses&#10;- A React component for a todo list with drag and drop"></textarea>
-            <button class="btn-generate" id="generateBtn" onclick="generate()">
-                Generate
-            </button>
+
+            <!-- Generate / Plan / Review mode -->
+            <div id="generatePanel">
+                <textarea id="description" placeholder="Describe what you want to build (any language)...&#10;&#10;Examples:&#10;- A REST API with user authentication (Go + Gin)&#10;- Rust function for parallel file processing&#10;- React + TypeScript dashboard with charts&#10;- Java Spring Boot microservice&#10;- C++ game engine with ECS pattern"></textarea>
+                <button class="btn-generate" id="generateBtn" onclick="generate()">
+                    Generate
+                </button>
+            </div>
+
+            <!-- Chat mode -->
+            <div class="chat-container" id="chatPanel">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem">
+                    <span style="color:#ff2d8a; font-size:0.85rem; font-weight:600">AI Chat</span>
+                    <button class="clear-chat" onclick="clearChat()">Clear</button>
+                </div>
+                <div class="chat-messages" id="chatMessages">
+                    <div class="chat-msg assistant">Hello! I'm SafeClaw AI. I can write code in any programming language, explain concepts, review code, and help with architecture. Ask me anything in any language!</div>
+                </div>
+                <div class="chat-input-row">
+                    <textarea id="chatInput" placeholder="Type a message in any language..." rows="2"></textarea>
+                    <button class="btn-generate btn-chat" id="chatBtn" onclick="sendChat()">Send</button>
+                </div>
+                <div class="lang-badges">
+                    <span class="lang-badge">English</span>
+                    <span class="lang-badge">Ukrainian</span>
+                    <span class="lang-badge">Spanish</span>
+                    <span class="lang-badge">German</span>
+                    <span class="lang-badge">French</span>
+                    <span class="lang-badge">Japanese</span>
+                    <span class="lang-badge">Chinese</span>
+                    <span class="lang-badge">Polish</span>
+                    <span class="lang-badge">+ more</span>
+                </div>
+            </div>
         </div>
 
         <div class="output-section" id="outputSection">
@@ -190,16 +310,20 @@
 
         <div class="features">
             <div class="feature">
-                <h4>Professional Pipeline</h4>
-                <p>6-step process: Plan, Code, Tests, Review, Fix, Scaffold. SOLID principles, type safety, error handling.</p>
+                <h4>50+ Languages</h4>
+                <p>Python, JS, TS, Go, Rust, C++, Java, Kotlin, Swift, Ruby, PHP, C#, and many more.</p>
+            </div>
+            <div class="feature">
+                <h4>Any Framework</h4>
+                <p>React, Vue, Django, FastAPI, Spring Boot, Rails, Laravel, Flutter, and more.</p>
+            </div>
+            <div class="feature">
+                <h4>Multilingual Chat</h4>
+                <p>Talk to AI in any human language. It responds in your language automatically.</p>
             </div>
             <div class="feature">
                 <h4>Quality Gates</h4>
-                <p>AI self-review with 1-10 scoring. Auto-fix loop iterates until quality threshold is met.</p>
-            </div>
-            <div class="feature">
-                <h4>100% Free</h4>
-                <p>Powered by free LLM models via OpenRouter. No API costs, no limits, no subscriptions.</p>
+                <p>AI self-review with 1-10 scoring. SOLID principles, type safety, error handling.</p>
             </div>
         </div>
 
@@ -210,6 +334,7 @@
 
     <script>
         let currentMode = 'generate';
+        let chatHistory = [];
 
         document.querySelectorAll('.mode-tab').forEach(tab => {
             tab.addEventListener('click', () => {
@@ -217,13 +342,26 @@
                 tab.classList.add('active');
                 currentMode = tab.dataset.mode;
 
-                const ta = document.getElementById('description');
-                if (currentMode === 'review') {
-                    ta.placeholder = 'Paste code to review...';
-                } else if (currentMode === 'plan') {
-                    ta.placeholder = 'Describe the project for architecture planning...';
+                const generatePanel = document.getElementById('generatePanel');
+                const chatPanel = document.getElementById('chatPanel');
+                const outputSection = document.getElementById('outputSection');
+
+                if (currentMode === 'chat') {
+                    generatePanel.style.display = 'none';
+                    chatPanel.classList.add('visible');
+                    outputSection.classList.remove('visible');
                 } else {
-                    ta.placeholder = 'Describe what you want to build...\n\nExamples:\n- A REST API with user authentication\n- A Python function that validates emails\n- A React todo list component';
+                    generatePanel.style.display = 'block';
+                    chatPanel.classList.remove('visible');
+
+                    const ta = document.getElementById('description');
+                    if (currentMode === 'review') {
+                        ta.placeholder = 'Paste code to review...';
+                    } else if (currentMode === 'plan') {
+                        ta.placeholder = 'Describe the project for architecture planning...';
+                    } else {
+                        ta.placeholder = 'Describe what you want to build (any language)...\n\nExamples:\n- A REST API with user authentication (Go + Gin)\n- Rust function for parallel file processing\n- React + TypeScript dashboard with charts';
+                    }
                 }
             });
         });
@@ -264,8 +402,76 @@
             btn.innerHTML = 'Generate';
         }
 
+        async function sendChat() {
+            const input = document.getElementById('chatInput');
+            const msg = input.value.trim();
+            if (!msg) return;
+
+            const btn = document.getElementById('chatBtn');
+            const messages = document.getElementById('chatMessages');
+
+            // Add user message
+            chatHistory.push({ role: 'user', content: msg });
+            const userDiv = document.createElement('div');
+            userDiv.className = 'chat-msg user';
+            userDiv.textContent = msg;
+            messages.appendChild(userDiv);
+
+            input.value = '';
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span>';
+
+            // Add thinking indicator
+            const thinkDiv = document.createElement('div');
+            thinkDiv.className = 'chat-msg assistant thinking';
+            thinkDiv.textContent = 'Thinking...';
+            messages.appendChild(thinkDiv);
+            messages.scrollTop = messages.scrollHeight;
+
+            try {
+                const resp = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messages: chatHistory }),
+                });
+                const data = await resp.json();
+
+                chatHistory.push({ role: 'assistant', content: data.reply });
+
+                thinkDiv.remove();
+                const aiDiv = document.createElement('div');
+                aiDiv.className = 'chat-msg assistant';
+                aiDiv.textContent = data.reply;
+                messages.appendChild(aiDiv);
+            } catch (e) {
+                thinkDiv.remove();
+                const errDiv = document.createElement('div');
+                errDiv.className = 'chat-msg assistant';
+                errDiv.textContent = `Error: ${e.message}`;
+                messages.appendChild(errDiv);
+            }
+
+            btn.disabled = false;
+            btn.innerHTML = 'Send';
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        function clearChat() {
+            chatHistory = [];
+            const messages = document.getElementById('chatMessages');
+            messages.innerHTML = '<div class="chat-msg assistant">Hello! I\'m SafeClaw AI. I can write code in any programming language, explain concepts, review code, and help with architecture. Ask me anything in any language!</div>';
+        }
+
         document.getElementById('description').addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) generate();
+        });
+
+        document.getElementById('chatInput').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) sendChat();
+            if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                e.preventDefault();
+                sendChat();
+            }
         });
     </script>
 </body>
