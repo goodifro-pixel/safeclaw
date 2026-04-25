@@ -136,6 +136,20 @@ ai_providers:
   #   model: "llama3.1-8b"
   #   endpoint: "http://localhost:1337/v1/chat/completions"
 
+  # --- Local fine-tuned model via transformers + PEFT (LoRA) ---
+  # Loads a HuggingFace base model with an optional LoRA adapter directly
+  # in-process. No server required. Requires `pip install safeclaw[finetune]`.
+  # Best paired with a coding-specific adapter — see scripts/train_lora.py.
+
+  # - label: "safeclaw-coder"
+  #   provider: "transformers"
+  #   model: "Qwen/Qwen2.5-Coder-1.5B"
+  #   adapter_id: "vladpp91/safeclaw-coder-lora"  # Hub repo or local path; omit for raw base model
+  #   device: "cpu"
+  #   dtype: "float32"
+  #   temperature: 0.2
+  #   max_tokens: 512
+
   # --- Cloud AI (uncomment and add your API key) ---
 
   # - label: "openai"
@@ -170,6 +184,13 @@ ai_providers:
   #   provider: "groq"
   #   api_key: "gsk_..."          # Get from https://console.groq.com/keys
   #   model: "llama-3.1-70b-versatile"  # Fast inference!
+  #   temperature: 0.7
+  #   max_tokens: 2000
+
+  # - label: "openrouter"
+  #   provider: "openrouter"
+  #   api_key: "${OPENROUTER_API_KEY}"   # ${VAR} references are expanded from the environment
+  #   model: "meta-llama/llama-3.1-8b-instruct"
   #   temperature: 0.7
   #   max_tokens: 2000
 

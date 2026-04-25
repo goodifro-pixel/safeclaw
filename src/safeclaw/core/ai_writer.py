@@ -23,6 +23,8 @@ so adding new providers is straightforward.
 
 import json
 import logging
+import os
+import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
@@ -94,6 +96,8 @@ class AIProvider(StrEnum):
     GOOGLE = "google"
     MISTRAL = "mistral"
     GROQ = "groq"
+    OPENROUTER = "openrouter"
+    TRANSFORMERS = "transformers"
     CUSTOM = "custom"
 
 
@@ -104,6 +108,7 @@ CLOUD_ENDPOINTS = {
     AIProvider.GOOGLE: "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
     AIProvider.MISTRAL: "https://api.mistral.ai/v1/chat/completions",
     AIProvider.GROQ: "https://api.groq.com/openai/v1/chat/completions",
+    AIProvider.OPENROUTER: "https://openrouter.ai/api/v1/chat/completions",
 }
 
 # Default models per provider
@@ -118,6 +123,8 @@ DEFAULT_MODELS = {
     AIProvider.GOOGLE: "gemini-1.5-flash",
     AIProvider.MISTRAL: "mistral-large-latest",
     AIProvider.GROQ: "llama-3.1-70b-versatile",
+    AIProvider.OPENROUTER: "meta-llama/llama-3.1-8b-instruct",
+    AIProvider.TRANSFORMERS: "Qwen/Qwen2.5-Coder-1.5B",
 }
 
 
@@ -132,6 +139,11 @@ class AIProviderConfig:
     max_tokens: int = 2000
     enabled: bool = True
     label: str = ""
+    # Local transformers-only fields (ignored by HTTP-based providers).
+    adapter_id: str = ""
+    device: str = "cpu"
+    dtype: str = "float32"
+    trust_remote_code: bool = True
 
     def __post_init__(self):
         if not self.model:
@@ -215,6 +227,24 @@ class BlogPromptTemplates:
             return template
 
 
+
+def _resolve_env(value: Any) -> str:
+    """Expand ``${VAR}`` references in config strings against the environment.
+
+    Allows users to keep secrets like API keys in environment variables instead
+    of committing them to ``config.yaml``::
+
+        ai_providers:
+          - label: openrouter-main
+            provider: openrouter
+            api_key: "${OPENROUTER_API_KEY}"
+    """
+    if not isinstance(value, str):
+        return value
+    pattern = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)\}")
+    return pattern.sub(lambda m: os.environ.get(m.group(1), ""), value)
+
+
 class AIWriter:
     """
     Multi-provider AI writer for blog content generation.
@@ -267,7 +297,9 @@ class AIWriter:
                 "is_local": cfg.provider in (
                     AIProvider.OLLAMA, AIProvider.LM_STUDIO,
                     AIProvider.LLAMACPP, AIProvider.LOCALAI, AIProvider.JAN,
+                    AIProvider.TRANSFORMERS,
                 ),
+                "adapter_id": cfg.adapter_id,
             })
         return result
 
@@ -320,8 +352,10 @@ class AIWriter:
             return await self._call_google(config, prompt, system_prompt, temp, tokens)
         elif config.provider == AIProvider.OLLAMA:
             return await self._call_ollama(config, prompt, system_prompt, temp, tokens)
+        elif config.provider == AIProvider.TRANSFORMERS:
+            return await self._call_transformers(config, prompt, system_prompt, temp, tokens)
         else:
-            # OpenAI-compatible (OpenAI, Mistral, Groq, LM Studio, llama.cpp, LocalAI, Jan, Custom)
+            # OpenAI-compatible (OpenAI, Mistral, Groq, OpenRouter, LM Studio, llama.cpp, LocalAI, Jan, Custom)
             return await self._call_openai_compatible(config, prompt, system_prompt, temp, tokens)
 
     async def generate_blog(
@@ -598,6 +632,65 @@ class AIWriter:
                 error=str(e),
             )
 
+    async def _call_transformers(
+        self,
+        config: AIProviderConfig,
+        prompt: str,
+        system_prompt: str,
+        temperature: float,
+        max_tokens: int,
+    ) -> AIResponse:
+        """Run inference locally via transformers + (optional) PEFT LoRA adapter."""
+        try:
+            from safeclaw.core.transformers_provider import (
+                TransformersAdapterConfig,
+                generate_async,
+            )
+        except ImportError as exc:
+            return AIResponse(
+                content="",
+                provider="transformers",
+                model=config.model,
+                error=(
+                    "Local transformers provider unavailable: "
+                    f"{exc}. Install via `pip install safeclaw[finetune]`."
+                ),
+            )
+
+        adapter_cfg = TransformersAdapterConfig(
+            base_model=config.model,
+            adapter_id=config.adapter_id or None,
+            device=config.device,
+            dtype=config.dtype,
+            trust_remote_code=config.trust_remote_code,
+            hf_token=config.api_key or os.environ.get("HF_TOKEN") or None,
+        )
+
+        try:
+            text = await generate_async(
+                adapter_cfg,
+                prompt=prompt,
+                system_prompt=system_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            return AIResponse(
+                content=text,
+                provider="transformers",
+                model=(
+                    f"{config.model}+{config.adapter_id}"
+                    if config.adapter_id
+                    else config.model
+                ),
+            )
+        except Exception as exc:
+            return AIResponse(
+                content="",
+                provider="transformers",
+                model=config.model,
+                error=str(exc),
+            )
+
     # ── Configuration loading ────────────────────────────────────────────────
 
     @classmethod
@@ -627,13 +720,17 @@ class AIWriter:
 
             cfg = AIProviderConfig(
                 provider=provider,
-                api_key=p.get("api_key", ""),
+                api_key=_resolve_env(p.get("api_key", "")),
                 endpoint=p.get("endpoint", ""),
                 model=p.get("model", ""),
                 temperature=p.get("temperature", 0.7),
                 max_tokens=p.get("max_tokens", 2000),
                 enabled=p.get("enabled", True),
                 label=p.get("label", provider.value),
+                adapter_id=p.get("adapter_id", ""),
+                device=p.get("device", "cpu"),
+                dtype=p.get("dtype", "float32"),
+                trust_remote_code=p.get("trust_remote_code", True),
             )
             configs.append(cfg)
 
