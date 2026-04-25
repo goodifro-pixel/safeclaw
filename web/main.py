@@ -89,7 +89,9 @@ async def _call_llm(
         return f"API Error: {exc}"
 
     if "error" in data:
-        return f"API Error: {data['error'].get('message', 'Unknown')}"
+        err = data["error"]
+        msg = err.get("message", "Unknown") if isinstance(err, dict) else str(err)
+        return f"API Error: {msg}"
 
     try:
         return data["choices"][0]["message"]["content"]
@@ -103,7 +105,11 @@ async def _call_llm_chat(messages: list[dict[str, str]], system_prompt: str) -> 
         return "Error: OPENROUTER_API_KEY not configured."
 
     all_messages = [{"role": "system", "content": system_prompt}]
-    all_messages.extend(messages)
+    all_messages.extend(
+        {"role": m["role"], "content": m.get("content", "")}
+        for m in messages
+        if m.get("role") in ("user", "assistant")
+    )
 
     payload = {
         "model": MODEL,
@@ -130,7 +136,9 @@ async def _call_llm_chat(messages: list[dict[str, str]], system_prompt: str) -> 
         return f"API Error: {exc}"
 
     if "error" in data:
-        return f"API Error: {data['error'].get('message', 'Unknown')}"
+        err = data["error"]
+        msg = err.get("message", "Unknown") if isinstance(err, dict) else str(err)
+        return f"API Error: {msg}"
 
     try:
         return data["choices"][0]["message"]["content"]
