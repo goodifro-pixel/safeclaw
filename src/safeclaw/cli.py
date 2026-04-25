@@ -19,11 +19,15 @@ from rich.logging import RichHandler
 
 from safeclaw import __version__
 from safeclaw.actions import weather as weather_action
+from safeclaw.actions.ai_coder import AiCoderAction
+from safeclaw.actions.ai_dev import AiDevAction
 from safeclaw.actions.blog import BlogAction
 from safeclaw.actions.briefing import BriefingAction
+from safeclaw.actions.bug_finder import BugFinderAction
 from safeclaw.actions.calendar import CalendarAction
 from safeclaw.actions.code import CodeAction
 from safeclaw.actions.crawl import CrawlAction
+from safeclaw.actions.deployer import DeployerAction
 from safeclaw.actions.email import EmailAction
 from safeclaw.actions.files import FilesAction
 from safeclaw.actions.news import NewsAction
@@ -80,6 +84,10 @@ def create_engine(config_path: Path | None = None) -> SafeClaw:
     blog_action = BlogAction()
     research_action = ResearchAction()
     code_action = CodeAction()
+    ai_coder_action = AiCoderAction()
+    bug_finder_action = BugFinderAction()
+    deployer_action = DeployerAction()
+    ai_dev_action = AiDevAction()
 
     engine.register_action("files", files_action.execute)
     engine.register_action("shell", shell_action.execute)
@@ -94,6 +102,10 @@ def create_engine(config_path: Path | None = None) -> SafeClaw:
     engine.register_action("blog", blog_action.execute)
     engine.register_action("research", research_action.execute)
     engine.register_action("code", code_action.execute)
+    engine.register_action("ai_coder", ai_coder_action.execute)
+    engine.register_action("bug_finder", bug_finder_action.execute)
+    engine.register_action("deployer", deployer_action.execute)
+    engine.register_action("ai_dev", ai_dev_action.execute)
     engine.register_action("help", lambda **_: engine.get_help())
 
     # Register style profile action (fuzzy learning)
@@ -1023,6 +1035,99 @@ intents:
   #   params:
   #     webhook_name: "deploy"
 """
+
+
+# ── AI Dev Pipeline CLI commands ──────────────────────────────────────────────
+
+
+@app.command("ai-code")
+def ai_code(
+    description: str = typer.Argument(..., help="What to build"),
+    lang: str = typer.Option("", "--lang", "-l", help="Target language (py, js, ts, go, …)"),
+    plan_only: bool = typer.Option(False, "--plan", help="Show architecture plan only"),
+    config: Path | None = typer.Option(None, "--config", "-c"),
+    verbose: bool = typer.Option(False, "--verbose"),
+):
+    """Generate code from a natural-language description (free LLM)."""
+    setup_logging(verbose)
+    suffix = f" --lang {lang}" if lang else ""
+    if plan_only:
+        cmd = f"ai-code plan {description}"
+    else:
+        cmd = f"ai-code generate {description}{suffix}"
+    asyncio.run(_run_action("ai_coder", cmd, config))
+
+
+@app.command("bug-find")
+def bug_find(
+    path: str = typer.Argument(".", help="File or directory to scan"),
+    static_only: bool = typer.Option(False, "--static", help="Static analysis only (no LLM)"),
+    security: bool = typer.Option(False, "--security", help="Security-focused scan"),
+    config: Path | None = typer.Option(None, "--config", "-c"),
+    verbose: bool = typer.Option(False, "--verbose"),
+):
+    """Find bugs via static analysis + optional AI review."""
+    setup_logging(verbose)
+    if static_only:
+        cmd = f"bug-find static {path}"
+    elif security:
+        cmd = f"bug-find security {path}"
+    else:
+        cmd = f"bug-find {path}"
+    asyncio.run(_run_action("bug_finder", cmd, config))
+
+
+@app.command("deploy")
+def deploy_cmd(
+    target: str = typer.Argument("ci", help="Target: github, pages, fly, ci, status"),
+    path: str = typer.Argument(".", help="Project path"),
+    repo: str = typer.Option("", "--repo", "-r", help="GitHub repo (owner/repo)"),
+    app_name: str = typer.Option("", "--app", "-a", help="Fly.io app name"),
+    config: Path | None = typer.Option(None, "--config", "-c"),
+    verbose: bool = typer.Option(False, "--verbose"),
+):
+    """Deploy code to GitHub / GitHub Pages / Fly.io (all free)."""
+    setup_logging(verbose)
+    repo_flag = f" --repo {repo}" if repo else ""
+    app_flag = f" --app {app_name}" if app_name else ""
+    cmd = f"deploy {target} {path}{repo_flag}{app_flag}"
+    asyncio.run(_run_action("deployer", cmd, config))
+
+
+@app.command("ai-dev")
+def ai_dev(
+    description: str = typer.Argument(..., help="What to build (full pipeline)"),
+    repo: str = typer.Option("", "--repo", "-r", help="GitHub repo for deployment"),
+    no_deploy: bool = typer.Option(False, "--no-deploy", help="Skip deployment"),
+    config: Path | None = typer.Option(None, "--config", "-c"),
+    verbose: bool = typer.Option(False, "--verbose"),
+):
+    """Full AI dev pipeline: describe → code → review → fix → deploy."""
+    setup_logging(verbose)
+    flags = ""
+    if repo:
+        flags += f" --repo {repo}"
+    if no_deploy:
+        flags += " --no-deploy"
+    cmd = f"ai-dev {description}{flags}"
+    asyncio.run(_run_action("ai_dev", cmd, config))
+
+
+async def _run_action(action_name: str, raw_input: str, config_path: Path | None) -> None:
+    """Helper to run a single action outside the interactive loop."""
+    engine = create_engine(config_path)
+    engine.load_config()
+    handler = engine.actions.get(action_name)
+    if not handler:
+        console.print(f"[red]Action '{action_name}' not found.[/red]")
+        return
+    result = await handler(
+        params={"raw_input": raw_input},
+        user_id="cli",
+        channel="cli",
+        engine=engine,
+    )
+    console.print(result)
 
 
 def main_cli():
