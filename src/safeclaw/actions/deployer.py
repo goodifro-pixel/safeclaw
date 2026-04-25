@@ -236,10 +236,14 @@ class DeployerAction(BaseAction):
         parts = raw.split()
         path_str = "."
         repo = ""
+        skip: set[int] = set()
 
         for i, p in enumerate(parts):
+            if i in skip:
+                continue
             if p == "--repo" and i + 1 < len(parts):
                 repo = parts[i + 1]
+                skip.add(i + 1)
             elif p not in ("deploy", "github", "--repo") and not p.startswith("--"):
                 path_str = p
 
@@ -287,10 +291,14 @@ class DeployerAction(BaseAction):
         parts = raw.split()
         path_str = "."
         repo = ""
+        skip: set[int] = set()
 
         for i, p in enumerate(parts):
+            if i in skip:
+                continue
             if p == "--repo" and i + 1 < len(parts):
                 repo = parts[i + 1]
+                skip.add(i + 1)
             elif p not in ("deploy", "pages", "--repo") and not p.startswith("--"):
                 path_str = p
 
@@ -360,10 +368,14 @@ class DeployerAction(BaseAction):
         parts = raw.split()
         path_str = "."
         app_name = ""
+        skip: set[int] = set()
 
         for i, p in enumerate(parts):
+            if i in skip:
+                continue
             if p == "--app" and i + 1 < len(parts):
                 app_name = parts[i + 1]
+                skip.add(i + 1)
             elif p not in ("deploy", "fly", "--app") and not p.startswith("--"):
                 path_str = p
 
