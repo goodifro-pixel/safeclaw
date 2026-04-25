@@ -116,7 +116,7 @@ ai_providers:
   - label: "openrouter-free"
     provider: "openrouter"
     api_key: "${OPENROUTER_API_KEY}"   # expanded from env var at runtime
-    model: "meta-llama/llama-3.1-8b-instruct:free"
+    model: "openai/gpt-oss-20b:free"
     temperature: 0.2
     max_tokens: 4000
 

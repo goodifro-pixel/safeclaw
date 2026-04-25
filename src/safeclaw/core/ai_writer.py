@@ -444,6 +444,16 @@ class AIWriter:
                 resp.raise_for_status()
                 data = resp.json()
 
+            if "error" in data:
+                err_msg = data["error"].get("message", "Unknown error")
+                return AIResponse(
+                    content="",
+                    provider=config.provider.value,
+                    model=config.model,
+                    tokens_used=0,
+                    error=f"API error: {err_msg}",
+                )
+
             content = data["choices"][0]["message"]["content"]
             tokens = data.get("usage", {}).get("total_tokens", 0)
 
